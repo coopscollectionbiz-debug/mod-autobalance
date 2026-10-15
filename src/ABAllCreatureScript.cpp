@@ -8,6 +8,7 @@
 #include "AutoBalance.h"
 
 #include "MapMgr.h"
+#include "ObjectAccessor.h"
 
 void AutoBalance_AllCreatureScript::OnBeforeCreatureSelectLevel(const CreatureTemplate* /*creatureTemplate*/, Creature* creature, uint8& level)
 {
@@ -435,6 +436,23 @@ void AutoBalance_AllCreatureScript::ModifyCreatureAttributes(Creature* creature)
         creatureABInfo->mapConfigTime = mapABInfo->mapConfigTime;
     }
 
+    // Coop customization: leave dungeon creatures completely stock when
+    // there are fewer than three real (non-GM) players in the instance.
+    // Player-count changes invalidate the map configuration, so
+    // ResetCreatureIfNeeded() restores previously-scaled creatures before
+    // this method is called.
+    if (mapABInfo->playerCount < 3)
+    {
+        LOG_DEBUG("module.AutoBalance", "AutoBalance_AllCreatureScript::ModifyCreatureAttributes: Creature {} ({}) | only {} real players in the instance, leaving creature at stock difficulty.",
+            creature->GetName(),
+            creatureABInfo->UnmodifiedLevel,
+            mapABInfo->playerCount
+        );
+
+        creatureABInfo->selectedLevel = creatureABInfo->UnmodifiedLevel;
+        return;
+    }
+
     // check to make sure that the creature's map is enabled for scaling
     if (!mapABInfo->enabled)
     {
@@ -559,7 +577,10 @@ void AutoBalance_AllCreatureScript::ModifyCreatureAttributes(Creature* creature)
         // handle "special" creatures
         // note that these already passed a more complex check above
         if (
-            (creature->IsTotem() && creature->IsSummon() && creatureABInfo->summoner && creatureABInfo->summoner->IsPlayer()) ||
+            (creature->IsTotem() && creature->IsSummon() &&
+             creature->ToTempSummon() &&
+             creature->ToTempSummon()->GetSummoner() &&
+             creature->ToTempSummon()->GetSummoner()->IsPlayer()) ||
             (
                 creature->IsCritter() && creatureABInfo->UnmodifiedLevel <= 5 && creature->GetMaxHealth() <= 100
                 )
@@ -1486,10 +1507,16 @@ bool AutoBalance_AllCreatureScript::_isSummonCloneOfSummoner(Creature* summon)
     // get the summon's info
     AutoBalanceCreatureInfo* summonABInfo = summon->CustomData.GetDefault<AutoBalanceCreatureInfo>("AutoBalanceCreatureInfo");
 
-    // get the saved summoner
-    Creature* summoner = summonABInfo->summoner;
+    // Resolve the summoner using its GUID, avoiding a stale cached pointer.
+    TempSummon* tempSummon = summon->ToTempSummon();
+    if (!tempSummon)
+        return false;
 
-    // if the summoner doesn't exist
+    ObjectGuid summonerGuid = tempSummon->GetSummonerGUID();
+    if (summonerGuid.IsEmpty())
+        return false;
+
+    Creature* summoner = ObjectAccessor::GetCreature(*summon, summonerGuid);
     if (!summoner)
         return false;
 
