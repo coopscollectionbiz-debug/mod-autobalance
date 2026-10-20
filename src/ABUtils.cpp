@@ -8,6 +8,8 @@
 #include "ABCreatureInfo.h"
 #include "ABMapInfo.h"
 
+#include "GameEventMgr.h"
+#include "GameObject.h"
 #include "Log.h"
 #include "Player.h"
 #include "TemporarySummon.h"
@@ -41,7 +43,12 @@ void AddCreatureToMapCreatureList(Creature* creature, bool addToCreatureList, bo
     AutoBalanceCreatureInfo* creatureABInfo = creature->CustomData.GetDefault<AutoBalanceCreatureInfo>("AutoBalanceCreatureInfo");
 
     //
+    // Identify active-event creatures without altering ordinary summon handling.
+    bool const isSeasonalEvent = isSeasonalEventCreature(creature);
+
+    //
     // Handle summoned creatures
+    // Seasonal summons retain their original level and remain excluded from map statistics.
     //
 
     if (creature->IsSummon())
@@ -119,9 +126,10 @@ void AddCreatureToMapCreatureList(Creature* creature, bool addToCreatureList, bo
                     //
                     // Match the summoner's level
                     //
-                    creatureABInfo->UnmodifiedLevel = summonerABInfo->UnmodifiedLevel;
+                    if (!isSeasonalEvent)
+                        creatureABInfo->UnmodifiedLevel = summonerABInfo->UnmodifiedLevel;
 
-                    LOG_DEBUG("module.AutoBalance", "AutoBalance::AddCreatureToMapCreatureList: Creature {} ({}) (summon) | original level will match summoner's level ({}).",
+                    LOG_DEBUG("module.AutoBalance", "AutoBalance::AddCreatureToMapCreatureList: Creature {} ({}) (summon) | summoner original level is ({}).",
                         creature->GetName(),
                         creatureABInfo->UnmodifiedLevel,
                         summonerABInfo->UnmodifiedLevel
@@ -189,7 +197,7 @@ void AddCreatureToMapCreatureList(Creature* creature, bool addToCreatureList, bo
         }
 
         //
-        // if this is a summon, we shouldn't track it in any list and it does not contribute to the average level
+        // Summons, including seasonal summons, do not contribute to dungeon creature-level statistics.
         //
 
         LOG_DEBUG("module.AutoBalance", "AutoBalance::AddCreatureToMapCreatureList: Creature {} ({}) (summon) | will not affect the map's stats.", creature->GetName(), creatureABInfo->UnmodifiedLevel);
@@ -197,8 +205,9 @@ void AddCreatureToMapCreatureList(Creature* creature, bool addToCreatureList, bo
     }
     //
     // Handle "special" creatures
+    // (seasonal event creatures are excluded so their original level is never altered)
     //
-    else if (creature->IsCritter() || creature->IsTotem() || creature->IsTrigger())
+    else if (!isSeasonalEvent && (creature->IsCritter() || creature->IsTotem() || creature->IsTrigger()))
     {
         //
         // If this is an intentionally-low-level creature (below 85% of the minimum LFG level), leave it where it is
@@ -244,6 +253,18 @@ void AddCreatureToMapCreatureList(Creature* creature, bool addToCreatureList, bo
             creature->GetName(),
             creatureABInfo->UnmodifiedLevel,
             creatureABInfo->UnmodifiedLevel);
+    }
+
+    //
+    // Seasonal event handling (unified for both summons and permament DB spawns)
+    //
+    if (isSeasonalEvent)
+    {
+        creatureABInfo->neverLevelScale = false;
+        LOG_DEBUG("module.AutoBalance", "AutoBalance::AddCreatureToMapCreatureList:Creature {} ({}) | belongs to an active seasonal event. Eligible for seasonal level and stat scaling. Original level: {}.",
+                  creature->GetName(),
+                  creatureABInfo->UnmodifiedLevel,
+                  creatureABInfo->UnmodifiedLevel);
     }
 
     //
@@ -1681,6 +1702,118 @@ bool isBossOrBossSummon(Creature* creature, bool log)
         //             creature->GetName(),
         //             creature->GetEntry()
         // );
+    }
+
+    return false;
+}
+
+// Returns true if the given creature DB spawn id belongs to any currently-active game event
+static bool isSpawnInActiveCreatureEvent(ObjectGuid::LowType spawnId)
+{
+    if (!spawnId)
+        return false;
+
+    GameEventMgr::ActiveEvents const& activeEvents = sGameEventMgr->GetActiveEventList();
+    std::size_t const eventCount = sGameEventMgr->GetEventMap().size();
+
+    for (uint16 eventId : activeEvents)
+    {
+        int32 internalEventId = (int32)eventCount + eventId - 1;
+        if (internalEventId < 0 || internalEventId >= (int32)sGameEventMgr->GameEventCreatureGuids.size())
+            continue;
+
+        for (ObjectGuid::LowType guid : sGameEventMgr->GameEventCreatureGuids[internalEventId])
+            if (guid == spawnId)
+                return true;
+    }
+
+    return false;
+}
+
+// Same as above, for gameobject spawns belonging to an active game event.
+static bool isSpawnInActiveGameObjectEvent(ObjectGuid::LowType spawnId)
+{
+    if (!spawnId)
+        return false;
+
+    GameEventMgr::ActiveEvents const& activeEvents = sGameEventMgr->GetActiveEventList();
+    std::size_t const eventCount = sGameEventMgr->GetEventMap().size();
+
+    for (uint16 eventId : activeEvents)
+    {
+        int32 internalEventId = (int32)eventCount + eventId - 1;
+        if (internalEventId < 0 || internalEventId >= (int32)sGameEventMgr->GameEventGameobjectGuids.size())
+            continue;
+
+        for (ObjectGuid::LowType guid : sGameEventMgr->GameEventGameobjectGuids[internalEventId])
+            if (guid == spawnId)
+                return true;
+    }
+
+    return false;
+}
+
+bool isSeasonalEventCreature(Creature* creature)
+{
+    if (!creature)
+        return false;
+
+    // never scale player-owned units (pets, guardians, totems, player summons)
+    if (creature->IsControlledByPlayer() ||
+        creature->IsPet() ||
+        creature->IsHunterPet() ||
+        creature->IsTotem() ||
+        creature->IsCreatedByPlayer())
+    {
+        return false;
+    }
+
+    // 1) Permanent DB spawn that is part of an active event
+    if (isSpawnInActiveCreatureEvent(creature->GetSpawnId())) {
+        LOG_DEBUG("module.AutoBalance", "AutoBalance:isSeasonalEventCreature:Creature {} ({}) | is a permanent spawn belonging to an active seasonal event.",
+            creature->GetName(),
+            creature->GetEntry()
+        );
+        return true;
+    }
+
+    // 2) Dynaically summoned creature: walk the summoner chain looking for an event spawn.
+    //    The loop is bounded to avoid any accidental cycle.
+    TempSummon* tempSummon = creature->ToTempSummon();
+    uint8 depth = 0;
+    while (tempSummon && depth < 5)
+    {
+        // a) summoned by a permanent creature that belongs to an active event
+        if (Creature* summonerCreature = tempSummon->GetSummonerCreatureBase()) {
+            if (isSpawnInActiveCreatureEvent(summonerCreature->GetSpawnId()))
+            {
+                LOG_DEBUG("module.AutoBalance", "AutoBalance:isSeasonalEventCreature:Creature {} ({}) | was summoned by an active seasonal event creature.",
+                          creature->GetName(),
+                          creature->GetEntry()
+                );
+                return true;
+            }
+
+            // climb one level up the summoner chain
+            tempSummon = summonerCreature->ToTempSummon();
+            ++depth;
+            continue;
+        }
+
+        // b) summoned by a gameobject that belongs to an active event
+        if (GameObject* summonerGo = tempSummon->GetSummonerGameObject()) {
+            if (isSpawnInActiveGameObjectEvent(summonerGo->GetSpawnId()))
+            {
+                LOG_DEBUG("module.AutoBalance", "AutoBalance:isSeasonalEventCreature:Creature {} ({}) | was summoned by an active seasonal event gameobject.",
+                          creature->GetName(),
+                          creature->GetEntry()
+                );
+                return true;
+            }
+        }
+
+        // no further creature summoner to climb; stop
+        break;
     }
 
     return false;
