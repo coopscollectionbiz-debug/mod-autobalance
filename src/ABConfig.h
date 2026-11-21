@@ -10,6 +10,8 @@
 #include "ABStatModifiers.h"
 #include "AutoBalance.h"
 
+#include <set>
+
 #include "SharedDefines.h"
 
 #include <list>
@@ -25,6 +27,7 @@ extern std::map<uint32, uint32>                                      levelScalin
 
 extern std::map <int, int>                                           forcedCreatureIds;
 extern std::list<uint32>                                             disabledDungeonIds;
+extern std::set<uint32>                                              levelScalingExcludedCreatureIds; // keep their DB level (multipliers still apply)
 
 extern uint32                                                        minPlayersNormal;
 extern uint32                                                        minPlayersHeroic;

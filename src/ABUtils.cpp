@@ -281,6 +281,9 @@ void AddCreatureToMapCreatureList(Creature* creature, bool addToCreatureList, bo
                   creatureABInfo->UnmodifiedLevel);
     }
 
+    if (levelScalingExcludedCreatureIds.count(creature->GetEntry()))
+        creatureABInfo->neverLevelScale = true;
+
     //
     // If this is a creature controlled by the player, skip for stats
     //

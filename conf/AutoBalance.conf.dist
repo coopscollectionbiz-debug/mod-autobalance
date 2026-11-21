@@ -758,6 +758,14 @@ AutoBalance.LevelScaling.SkipHigherLevels = 3
 AutoBalance.LevelScaling.SkipLowerLevels = 5
 
 #
+#     AutoBalance.LevelScaling.ExcludeCreatureIDs
+#        Comma-separated creature entries that keep their database level (stat multipliers still apply).
+#        351084: Naxx40 Deathknight Understudy - must stay at 60 so a level-60 priest can Mind Control it.
+#        Default: "351084"
+#
+AutoBalance.LevelScaling.ExcludeCreatureIDs = "351084"
+
+#
 #     AutoBalance.LevelScaling.DynamicLevel.Ceiling.*
 #        Sets the maximum number of levels creatures scaled in "dynamic" mode can be OVER your highest-level
 #        player. The creature in the dungeon with the highest original level will be set to the highest-level

@@ -6,6 +6,8 @@
 #include "Configuration/Config.h"
 #include "Log.h"
 
+#include <sstream>
+
 void AutoBalance_WorldScript::OnBeforeConfigLoad(bool /*reload*/)
 {
     SetInitialWorldSettings();
@@ -25,6 +27,17 @@ void AutoBalance_WorldScript::SetInitialWorldSettings()
     statModifierCreatureOverrides.clear();
     levelScalingDynamicLevelOverrides.clear();
     levelScalingDistanceCheckOverrides.clear();
+    levelScalingExcludedCreatureIds.clear();
+
+    // Creatures that keep their DB level. Naxx40's Deathknight Understudy (351084, level 60) was raised to 63 by
+    // dynamic scaling, past a level-60 priest's Mind Control cap (62), so Razuvious could not be done as designed.
+    {
+        std::stringstream ids(sConfigMgr->GetOption<std::string>("AutoBalance.LevelScaling.ExcludeCreatureIDs", "351084"));
+        std::string id;
+        while (std::getline(ids, id, ','))
+            if (int32 entry = atoi(id.c_str()); entry > 0)
+                levelScalingExcludedCreatureIds.insert(uint32(entry));
+    }
 
     LoadForcedCreatureIdsFromString(sConfigMgr->GetOption<std::string>("AutoBalance.ForcedID40", ""), 40);
     LoadForcedCreatureIdsFromString(sConfigMgr->GetOption<std::string>("AutoBalance.ForcedID25", ""), 25);

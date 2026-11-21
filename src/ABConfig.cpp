@@ -7,6 +7,7 @@
 
 std::map <int, int> forcedCreatureIds;
 std::list<uint32> disabledDungeonIds;
+std::set<uint32> levelScalingExcludedCreatureIds;
 
 uint32 minPlayersNormal;
 uint32 minPlayersHeroic;
