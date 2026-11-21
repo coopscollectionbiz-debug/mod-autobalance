@@ -10,6 +10,28 @@
 #include "MapMgr.h"
 #include "ObjectAccessor.h"
 
+// AutoBalance.LevelScaling.ExcludeCreatureIDs: pin the creature to its template level whatever the summon and
+// scaling paths computed (Naxx40's Understudy kept turning up at 63 with neverLevelScale set alone).
+static void EnforceExcludedCreatureLevel(Creature* creature, AutoBalanceCreatureInfo* creatureABInfo)
+{
+    if (!levelScalingExcludedCreatureIds.count(creature->GetEntry()))
+        return;
+    CreatureTemplate const* tmpl = creature->GetCreatureTemplate();
+    if (!tmpl)
+        return;
+    uint8 const level = uint8(tmpl->minlevel);
+    creatureABInfo->UnmodifiedLevel = level;
+    creatureABInfo->selectedLevel = level;
+    creatureABInfo->neverLevelScale = true;
+    if (creature->GetLevel() != level)
+    {
+        LOG_INFO("module", "AutoBalance: {} ({}) held at its template level {} (was {})", creature->GetName(),
+                 creature->GetEntry(), uint32(level), uint32(creature->GetLevel()));
+        creature->SetLevel(level);
+        creature->UpdateAllStats();
+    }
+}
+
 void AutoBalance_AllCreatureScript::OnBeforeCreatureSelectLevel(const CreatureTemplate* /*creatureTemplate*/, Creature* creature, uint8& level)
 {
     Map* creatureMap = creature->GetMap();
@@ -141,6 +163,7 @@ void AutoBalance_AllCreatureScript::OnCreatureSelectLevel(const CreatureTemplate
 
         AutoBalanceCreatureInfo* creatureABInfo = creature->CustomData.GetDefault<AutoBalanceCreatureInfo>("AutoBalanceCreatureInfo");
 
+        EnforceExcludedCreatureLevel(creature, creatureABInfo);
         if (creature->GetLevel() != creatureABInfo->selectedLevel && isCreatureRelevant(creature))
         {
             LOG_DEBUG("module.AutoBalance", "AutoBalance_AllCreatureScript::OnCreatureSelectLevel: Creature {} ({}) | is set to level ({}).",
@@ -279,6 +302,7 @@ void AutoBalance_AllCreatureScript::OnAllCreatureUpdate(Creature* creature, uint
 
         AutoBalanceCreatureInfo* creatureABInfo = creature->CustomData.GetDefault<AutoBalanceCreatureInfo>("AutoBalanceCreatureInfo");
 
+        EnforceExcludedCreatureLevel(creature, creatureABInfo);
         if (creature->GetLevel() != creatureABInfo->selectedLevel && isCreatureRelevant(creature))
         {
             LOG_DEBUG("module.AutoBalance", "AutoBalance_AllCreatureScript::OnAllCreatureUpdate: Creature {} ({}) | is set to level ({}).",

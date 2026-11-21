@@ -281,8 +281,14 @@ void AddCreatureToMapCreatureList(Creature* creature, bool addToCreatureList, bo
                   creatureABInfo->UnmodifiedLevel);
     }
 
+    // Excluded creatures keep their template level. Not the summon branch's UnmodifiedLevel: a hostile summon takes its
+    // summoner's (Razuvious 63 for his level-60 Understudies), so neverLevelScale alone still left them at 63.
     if (levelScalingExcludedCreatureIds.count(creature->GetEntry()))
+    {
+        if (CreatureTemplate const* tmpl = creature->GetCreatureTemplate())
+            creatureABInfo->UnmodifiedLevel = tmpl->minlevel;
         creatureABInfo->neverLevelScale = true;
+    }
 
     //
     // If this is a creature controlled by the player, skip for stats
